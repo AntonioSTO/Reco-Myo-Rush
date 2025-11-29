@@ -1,0 +1,8 @@
+Model,Accuracy,Precision,Sensitivity,Best Estimator Params
+KNN,98.32,98.35,98.32,"{'metric': 'manhattan', 'n_neighbors': 2}"
+GaussianNB,74.39,74.62,74.39,{'var_smoothing': np.float64(6.579332246575682e-09)}
+Decision Tree,88.64,88.74,88.64,"{'max_depth': 25, 'min_samples_leaf': 2, 'min_samples_split': 4}"
+Random Forest,93.69,93.92,93.69,"{'max_depth': 20, 'min_samples_leaf': 2, 'min_samples_split': 4, 'n_estimators': 200}"
+SVM,86.66,86.98,86.66,"{'kernel': 'rbf', 'gamma': 'scale', 'C': 100}"
+LDA,78.64,78.66,78.64,"{'shrinkage': None, 'solver': 'svd'}"
+MLP,93.91,94.05,93.91,"{'activation': 'relu', 'alpha': 0.001, 'hidden_layer_sizes': (100, 50), 'solver': 'adam'}"
