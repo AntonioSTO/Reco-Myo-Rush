@@ -1,14 +1,17 @@
 import multiprocessing
 import pandas as pd
 import time
+from time import perf_counter
 from pyomyo import Myo, emg_mode
 from collections import deque
 import os
 import winsound
 import cv2
-import random  # NEW: for randomizing gesture order
+import random
 
-# Gesture list + corresponding images
+# =========================================
+# GESTURES + IMAGES
+# =========================================
 gestures = {
     "POWER": "img/power.png",
     "LATERAL": "img/lateral.png",
@@ -19,10 +22,9 @@ gestures = {
 
 REST_IMAGE = "img/rest.png"
 
-
-# ===========================================================
-# Worker process to handle Myo EMG streaming
-# ===========================================================
+# =========================================
+# WORKER → Myo reader process
+# =========================================
 def worker(conn):
     m = Myo(mode=emg_mode.FILTERED)
     m.connect()
@@ -44,9 +46,9 @@ def worker(conn):
             break
 
 
-# ===========================================================
-# Function to display gesture image
-# ===========================================================
+# =========================================
+# SHOW IMAGE
+# =========================================
 def show_image(image_path, window_name="Gesture", width=500, height=500):
     img = cv2.imread(image_path)
     if img is not None:
@@ -54,12 +56,12 @@ def show_image(image_path, window_name="Gesture", width=500, height=500):
         cv2.imshow(window_name, img)
         cv2.waitKey(1)
     else:
-        print(f"⚠️ ERROR: Could not load image: {image_path}")
+        print(f"⚠ ERROR: Could not load {image_path}")
 
 
-# ===========================================================
-# MAIN PROGRAM
-# ===========================================================
+# =========================================
+# MAIN
+# =========================================
 if __name__ == "__main__":
 
     parent_conn, child_conn = multiprocessing.Pipe()
@@ -74,7 +76,7 @@ if __name__ == "__main__":
     start_time = time.time()
     fixed_sample_rate = None
 
-    # Estimate sample rate first
+    # Estimate sample rate 2–3 seconds
     while fixed_sample_rate is None:
         if parent_conn.poll():
             t, _ = parent_conn.recv()
@@ -88,10 +90,9 @@ if __name__ == "__main__":
                 last_save = t
 
     # Protocol parameters
-    GRASP_TIME = 5
-    REST_TIME = 3
-    AUDIO_ADVANCE = 0.250
-    REPEAT_CYCLES = 5   # 5 full cycles of random gestures
+    GRASP_TIME = 5.0
+    REST_TIME = 3.0
+    REPEAT_CYCLES = 5
 
     gesture_list = list(gestures.keys())
 
@@ -100,62 +101,56 @@ if __name__ == "__main__":
     print("===============================\n")
 
     try:
-
         for cycle in range(REPEAT_CYCLES):
             print(f"\n======== CYCLE {cycle+1}/{REPEAT_CYCLES} ========\n")
 
-            # RANDOMIZE ORDER FOR THIS CYCLE
+            # randomize order
             random_order = random.sample(gesture_list, len(gesture_list))
             print("Random order:", random_order)
 
             for current_gesture in random_order:
 
-                image_path = gestures[current_gesture]
-
-                # ------------------------
-                # REST PHASE
-                # ------------------------
-                print(f"\n🟦 REST for {REST_TIME}s before next gesture...")
+                # --------------------------------------------------
+                # REST PHASE — EXACT 3.000 s
+                # --------------------------------------------------
                 show_image(REST_IMAGE)
-                rest_end = time.time() + REST_TIME
+                print(f"\n🟦 REST ({REST_TIME}s)")
+                
+                t_start = perf_counter()
+                t_rest_end = t_start + REST_TIME
 
-                while time.time() < rest_end:
+                winsound.Beep(700, 150)  # beep at rest start (optional)
+
+                while perf_counter() < t_rest_end:
                     if parent_conn.poll():
                         timestamp, emg = parent_conn.recv()
                         if timestamp - last_save >= storage_interval:
                             emg_data.append([timestamp] + list(emg) + ["REST"])
                             last_save = timestamp
 
-                # ------------------------
-                # PREPARE GESTURE
-                # ------------------------
-                print(f"\n👉 NEXT GESTURE: {current_gesture}")
-                show_image(image_path)
+                # --------------------------------------------------
+                # GESTURE PHASE — EXACT 5.000 s
+                # --------------------------------------------------
+                show_image(gestures[current_gesture])
+                print(f"✊ PERFORM {current_gesture} ({GRASP_TIME}s)")
 
-                winsound.Beep(1000, 250)
-                print("👉 Starting in 250 ms...")
-                time.sleep(AUDIO_ADVANCE)
+                winsound.Beep(1000, 150)  # EXACT TIME BEEP (gesture start)
 
-                # ------------------------
-                # GRASP PHASE
-                # ------------------------
-                print(f"✊ PERFORM {current_gesture} for {GRASP_TIME}s")
-                grasp_end = time.time() + GRASP_TIME
+                t_grasp_end = t_rest_end + GRASP_TIME
 
-                while time.time() < grasp_end:
+                while perf_counter() < t_grasp_end:
                     if parent_conn.poll():
                         timestamp, emg = parent_conn.recv()
                         if timestamp - last_save >= storage_interval:
                             emg_data.append([timestamp] + list(emg) + [current_gesture])
                             last_save = timestamp
 
-                winsound.Beep(800, 200)
-                print("🔔 GRASP END")
+                winsound.Beep(600, 150)  # EXACT TIME BEEP (gesture end)
 
         print("\n🎉 ALL CYCLES COMPLETED SUCCESSFULLY!")
 
     except KeyboardInterrupt:
-        print("\nCollection interrupted by user.")
+        print("\nInterrupted by user.")
 
     finally:
         print("\nShutting down Myo...")
@@ -168,10 +163,9 @@ if __name__ == "__main__":
         )
 
         os.makedirs("db", exist_ok=True)
-        
-        out_path = "db/right_full_gestures_random_00.csv"
+        out_path = "db/TESTE0000.csv"
         df.to_csv(out_path, index=False)
 
-        print(f"\n✔ File saved to: {out_path}")
+        print(f"✔ File saved to: {out_path}")
 
         cv2.destroyAllWindows()
