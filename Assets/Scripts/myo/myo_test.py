@@ -1,139 +1,122 @@
-import multiprocessing
 import numpy as np
-import time
-from pyomyo import Myo, emg_mode
-from collections import deque
 import joblib
+import time
+import multiprocessing
+from collections import deque
+from scipy.stats import kurtosis, skew
+from pyomyo import Myo, emg_mode
 
-# ============================================================
-# Load trained models
-# ============================================================
-model_gesture = joblib.load("gesture_classifier.joblib")
-model_position = joblib.load("position_classifier.joblib")
+# ===========================================================
+# LOAD MODEL AND FEATURE LIST
+# ===========================================================
+MODEL_PATH = "db/random_forest_model_10_features.joblib"
+model = joblib.load(MODEL_PATH)
+print(f"✔ Loaded model from {MODEL_PATH}")
 
-GESTURE_NAMES = ["POWER", "LATERAL", "POINTER", "OPEN", "TRIPOD"]
-POSITION_NAMES = ["LEFT", "CENTER", "RIGHT"]
+# A ORDEM DAS FEATURES TEM QUE SER EXATAMENTE ESTA:
+selected_features = [
+    'CH_6_RMS', 'CH_6_MAV', 'CH_6_WL',
+    'CH_7_RMS', 'CH_7_MAV', 'CH_7_WL', 'CH_7_VAR',
+    'CH_8_RMS', 'CH_8_MAV', 'CH_8_WL'
+]
 
-# ============================================================
-# Feature extraction (must match TRAINING exactly)
-# ============================================================
-def rms(x): return np.sqrt(np.mean(x**2))
-def mav(x): return np.mean(np.abs(x))
-def wl(x): return np.sum(np.abs(np.diff(x)))
-def zc(x, thresh=5): return np.sum(((x[:-1] * x[1:]) < 0) & (np.abs(x[:-1]-x[1:])>=thresh))
-def ssc(x, thresh=5):
-    d = np.diff(x)
-    return np.sum(((d[:-1] * d[1:]) < 0) & (np.abs(d[:-1]-d[1:]) >= thresh))
+# Para mapear CH_6 → índice 5, CH_7 → 6, CH_8 → 7
+CHANNEL_MAP = {
+    "CH_6": 5,
+    "CH_7": 6,
+    "CH_8": 7
+}
 
-def extract_features_window(win):
+# ===========================================================
+# Feature functions
+# ===========================================================
+def waveform_length(x):
+    return np.sum(np.abs(np.diff(x)))
+
+def extract_10_features(window):
+
     feats = []
-    for c in range(win.shape[1]):
-        x = win[:, c]
-        feats += [
-            rms(x), mav(x), np.std(x), np.var(x),
-            np.max(x), np.min(x), np.ptp(x),
-            wl(x), zc(x), ssc(x)
-        ]
-    return np.array(feats)
 
+    for feat in selected_features:
+        parts = feat.split("_")   # ["CH", "6", "RMS"]
+        ch_number = int(parts[1])  
+        feat_type = parts[2]
 
-# ============================================================
-# Worker: Myo process
-# ============================================================
+        ch_idx = ch_number - 1   # CH_1 → índice 0, CH_8 → índice 7
+
+        x = window[:, ch_idx]
+
+        if feat_type == "RMS":
+            feats.append(np.sqrt(np.mean(x**2)))
+
+        elif feat_type == "MAV":
+            feats.append(np.mean(np.abs(x)))
+
+        elif feat_type == "WL":
+            feats.append(waveform_length(x))
+
+        elif feat_type == "VAR":
+            feats.append(np.var(x))
+
+        else:
+            feats.append(0)
+
+    return np.array(feats).reshape(1, -1)
+
+# ===========================================================
+# Worker process
+# ===========================================================
 def worker(conn):
     m = Myo(mode=emg_mode.FILTERED)
     m.connect()
 
-    def add_to_pipe(emg, movement):
-        conn.send((time.time(), emg))
+    def register(emg, mv):
+        conn.send(emg)
 
-    m.add_emg_handler(add_to_pipe)
+    m.add_emg_handler(register)
+    m.vibrate(1)
 
-    print("Myo connected. Streaming...")
+    print(">>> Myo conectado, capturando...")
 
     while True:
         try:
             m.run()
-        except Exception as e:
-            print("Worker crashed:", e)
+        except:
             break
 
-
-# ============================================================
-# MAIN REAL-TIME LOOP
-# ============================================================
+# ===========================================================
+# MAIN PROCESS
+# ===========================================================
 if __name__ == "__main__":
 
-    # Start Myo in subprocess
     parent_conn, child_conn = multiprocessing.Pipe()
     p = multiprocessing.Process(target=worker, args=(child_conn,))
     p.start()
 
-    print("\nEstimating sample rate...")
-    ts_buffer = deque(maxlen=200)
-    sample_rate = None
-    start = time.time()
+    WINDOW_SIZE = 15
+    buffer = deque(maxlen=WINDOW_SIZE)
 
-    # Estimate sample rate
-    while sample_rate is None:
+    gesture_names = [
+    "LATERAL",
+    "OPEN",
+    "POINTER",
+    "POWER",
+    "REST",
+    "TRIPOD"
+    ]
+
+    print(">>> REALTIME CLASSIFICATION READY")
+    print("Listening...")
+
+    while True:
         if parent_conn.poll():
-            t, _ = parent_conn.recv()
-            ts_buffer.append(t)
+            emg = parent_conn.recv()  # vetor de 8 canais
+            buffer.append(emg)
 
-            if time.time() - start >= 3:
-                dt = np.diff(ts_buffer)
-                sample_rate = 1.0 / np.median(dt)
-                print(f"Sample Rate: {sample_rate:.2f} Hz")
+            if len(buffer) == WINDOW_SIZE:
 
-    # Setup window
-    WINDOW_MS = 300
-    WINDOW_SIZE = int(sample_rate * WINDOW_MS / 1000)
-    print(f"WINDOW_SIZE = {WINDOW_SIZE}")
+                window = np.array(buffer)
+                feat10 = extract_10_features(window)
+                pred = model.predict(feat10)[0]
 
-    ring = deque(maxlen=WINDOW_SIZE)
-
-    last_gesture = None
-    last_position = None
-    stab_g = stab_p = 0
-
-    print("\n🔥 STARTED REAL-TIME CLASSIFICATION\n")
-
-    try:
-        while True:
-
-            if parent_conn.poll():
-                ts, emg = parent_conn.recv()
-                ring.append(emg)
-
-                if len(ring) == WINDOW_SIZE:
-
-                    win = np.array(ring)
-                    feats = extract_features_window(win).reshape(1, -1)
-
-                    # Predict gesture + position
-                    pred_g = model_gesture.predict(feats)[0]
-                    pred_p = model_position.predict(feats)[0]
-
-                    # Stability filter
-                    if pred_g == last_gesture:
-                        stab_g += 1
-                    else:
-                        stab_g = 0
-                        last_gesture = pred_g
-
-                    if pred_p == last_position:
-                        stab_p += 1
-                    else:
-                        stab_p = 0
-                        last_position = pred_p
-
-                    if stab_g >= 3 and stab_p >= 3:
-                        print(f">>> GESTURE: {GESTURE_NAMES[pred_g]}   POSITION: {POSITION_NAMES[pred_p]}")
-
-    except KeyboardInterrupt:
-        print("\nStopping...")
-
-    finally:
-        p.terminate()
-        p.join()
-        print("Myo closed.")
+                print("Detected gesture:", gesture_names[pred])
