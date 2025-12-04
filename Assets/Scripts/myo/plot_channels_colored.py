@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Load CSV
-df = pd.read_csv("db/voluntary_001_left.csv")
+df = pd.read_csv("db/voluntary_001_right.csv")
 
 channels = ["CH_1","CH_2","CH_3","CH_4","CH_5","CH_6","CH_7","CH_8"]
 
