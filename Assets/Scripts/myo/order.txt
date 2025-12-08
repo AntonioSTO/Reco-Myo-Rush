@@ -1,8 +1,8 @@
-Voluntary_001: Left, Center, Right
-Voluntary_002: Right, Center, Left
-Voluntary_003: Left, Right, Center
-Voluntary_004: Center, Right, Left
-Voluntary_005: Center, Left, Right
+Voluntary_001: Left, Center, Right (woman)
+Voluntary_002: Right, Center, Left (man)
+Voluntary_003: Left, Right, Center (man)
+Voluntary_004: Center, Right, Left (man)
+Voluntary_005: Center, Left, Right (man)
 Voluntary_006: Right, Left, Center
 Voluntary_007: Center, Left, Right
 Voluntary_008: Left, Right, Center
