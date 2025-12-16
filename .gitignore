@@ -103,3 +103,6 @@ InitTestScene*.unity*
 
 # Ignore .vscode folder
 .vscode/
+
+# Ignore .metadata files
+*.meta
