@@ -18,11 +18,11 @@ Xtr, Xte, ytr, yte = train_test_split(
 )
 
 model = XGBClassifier(
-    n_estimators=400,
-    max_depth=6,
+    n_estimators=500,
+    max_depth=7,
     learning_rate=0.05,
-    subsample=0.8,
-    colsample_bytree=0.8,
+    subsample=0.9,
+    colsample_bytree=0.9,
     objective="multi:softprob",
     eval_metric="mlogloss",
     n_jobs=-1
@@ -31,4 +31,4 @@ model = XGBClassifier(
 model.fit(Xtr, ytr)
 
 joblib.dump((model, scaler, le), "model.pkl")
-print("✅ Modelo salvo em model.pkl")
+print("✅ Modelo treinado e salvo")

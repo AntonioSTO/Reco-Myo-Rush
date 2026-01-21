@@ -10,7 +10,7 @@ model, scaler, le = joblib.load("model.pkl")
 X = scaler.transform(X)
 y = le.transform(y)
 
-y_pred = model.predict(X)
+yp = model.predict(X)
 
-print("Accuracy:", accuracy_score(y, y_pred))
-print(classification_report(y, y_pred))
+print("Accuracy:", accuracy_score(y, yp))
+print(classification_report(y, yp))
