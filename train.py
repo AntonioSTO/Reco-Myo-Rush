@@ -1,71 +1,43 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader
+from dataset import EMGDataset
+from model import MLP
 from tqdm import tqdm
 
-from dataset import HandGestureDataset
-from model import CNN_GRU_Gesture
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# ======================
-# Configurações ótimas
-# ======================
-DATA_DIR = "db"
-WINDOW_SIZE = 25
-STRIDE = 3
-BATCH_SIZE = 128
-EPOCHS = 60
+ROOT = "db"
+WINDOW = 50
+STRIDE = 5
+BATCH = 256
+EPOCHS = 80
 LR = 1e-3
-WEIGHT_DECAY = 1e-4
-PATIENCE = 7
 
-TRAIN_VOLUNTARIES = list(range(1, 9))
-TEST_VOLUNTARIES = [9, 10]
+TRAIN_VOL = list(range(1, 9))
+TEST_VOL = [9, 10]
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# ======================
-# Datasets
-# ======================
-train_dataset = HandGestureDataset(
-    DATA_DIR,
-    TRAIN_VOLUNTARIES,
-    WINDOW_SIZE,
-    STRIDE
+train_set = EMGDataset(
+    ROOT, TRAIN_VOL, WINDOW, STRIDE, compute_norm=True
 )
 
-test_dataset = HandGestureDataset(
-    DATA_DIR,
-    TEST_VOLUNTARIES,
-    WINDOW_SIZE,
-    STRIDE,
-    label_map=train_dataset.label_map
+test_set = EMGDataset(
+    ROOT, TEST_VOL, WINDOW, STRIDE,
+    mean=train_set.mean,
+    std=train_set.std
 )
 
-train_loader = DataLoader(train_dataset, BATCH_SIZE, shuffle=True)
-test_loader = DataLoader(test_dataset, BATCH_SIZE)
+train_loader = DataLoader(train_set, batch_size=BATCH, shuffle=True)
+test_loader = DataLoader(test_set, batch_size=BATCH)
 
-# ======================
-# Modelo
-# ======================
-model = CNN_GRU_Gesture(len(train_dataset.label_map)).to(DEVICE)
+num_classes = len(set(train_set.y))
+model = MLP(train_set.X.shape[1], num_classes).to(DEVICE)
 
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(
-    model.parameters(),
-    lr=LR,
-    weight_decay=WEIGHT_DECAY
-)
+criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-3)
 
-# ======================
-# Early stopping
-# ======================
 best_acc = 0
-epochs_no_improve = 0
 
-# ======================
-# Treinamento
-# ======================
 for epoch in range(EPOCHS):
     model.train()
     total_loss = 0
@@ -74,41 +46,34 @@ for epoch in range(EPOCHS):
         x, y = x.to(DEVICE), y.to(DEVICE)
 
         optimizer.zero_grad()
-        loss = criterion(model(x), y)
+        out = model(x)
+        loss = criterion(out, y)
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
 
-    # ======================
-    # Avaliação
-    # ======================
     model.eval()
-    correct, total = 0, 0
+    correct = total = 0
 
     with torch.no_grad():
         for x, y in test_loader:
             x, y = x.to(DEVICE), y.to(DEVICE)
-            preds = model(x).argmax(dim=1)
-            correct += (preds == y).sum().item()
+            pred = model(x).argmax(1)
+            correct += (pred == y).sum().item()
             total += y.size(0)
 
     acc = 100 * correct / total
-    avg_loss = total_loss / len(train_loader)
+    print(f"Epoch {epoch+1} | Loss {total_loss:.4f} | Test Acc {acc:.2f}%")
 
-    print(f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Test Acc: {acc:.2f}%")
-
-    # ======================
-    # Early stopping logic
-    # ======================
     if acc > best_acc:
         best_acc = acc
-        epochs_no_improve = 0
-        torch.save(model.state_dict(), "best_cnn_gru_hand_gesture.pth")
-    else:
-        epochs_no_improve += 1
-        if epochs_no_improve >= PATIENCE:
-            print("⏹️ Early stopping acionado")
-            break
+        torch.save(model.state_dict(), "best_mlp_emg.pth")
 
-print(f"🏆 Melhor Test Acc: {best_acc:.2f}%")
+print(f"✅ Melhor acurácia: {best_acc:.2f}%")
+
+import numpy as np
+
+np.save("mean.npy", train_set.mean)
+np.save("std.npy", train_set.std)
+

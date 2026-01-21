@@ -1,6 +1,6 @@
-torch
-torchvision
 numpy
 pandas
+torch
 scikit-learn
 tqdm
+matplotlib
