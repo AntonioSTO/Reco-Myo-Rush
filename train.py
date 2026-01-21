@@ -1,89 +1,34 @@
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from dataset import EMGDataset
-from model import MLP
-from tqdm import tqdm
 import numpy as np
-import pickle
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from xgboost import XGBClassifier
+import joblib
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+data = np.load("features.npz", allow_pickle=True)
+X, y = data["X"], data["y"]
 
-ROOT = "db"
-WINDOW = 50
-STRIDE = 5
-BATCH = 256
-EPOCHS = 80
-LR = 1e-3
+le = LabelEncoder()
+y = le.fit_transform(y)
 
-TRAIN_VOL = list(range(1, 9))
-TEST_VOL = [9, 10]
+scaler = StandardScaler()
+X = scaler.fit_transform(X)
 
-train_set = EMGDataset(
-    ROOT,
-    TRAIN_VOL,
-    WINDOW,
-    STRIDE,
-    compute_norm=True
+Xtr, Xte, ytr, yte = train_test_split(
+    X, y, test_size=0.25, stratify=y, random_state=42
 )
 
-label_map = train_set.label_map
-
-test_set = EMGDataset(
-    ROOT,
-    TEST_VOL,
-    WINDOW,
-    STRIDE,
-    label_map=label_map,
-    mean=train_set.mean,
-    std=train_set.std
+model = XGBClassifier(
+    n_estimators=400,
+    max_depth=6,
+    learning_rate=0.05,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    objective="multi:softprob",
+    eval_metric="mlogloss",
+    n_jobs=-1
 )
 
-np.save("mean.npy", train_set.mean)
-np.save("std.npy", train_set.std)
+model.fit(Xtr, ytr)
 
-with open("label_map.pkl", "wb") as f:
-    pickle.dump(label_map, f)
-
-train_loader = DataLoader(train_set, batch_size=BATCH, shuffle=True)
-test_loader = DataLoader(test_set, batch_size=BATCH)
-
-model = MLP(train_set.X.shape[1], len(label_map)).to(DEVICE)
-
-criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-3)
-
-best_acc = 0.0
-
-for epoch in range(EPOCHS):
-    model.train()
-    total_loss = 0
-
-    for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}"):
-        x, y = x.to(DEVICE), y.to(DEVICE)
-
-        optimizer.zero_grad()
-        loss = criterion(model(x), y)
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item()
-
-    model.eval()
-    correct = total = 0
-
-    with torch.no_grad():
-        for x, y in test_loader:
-            x, y = x.to(DEVICE), y.to(DEVICE)
-            pred = model(x).argmax(1)
-            correct += (pred == y).sum().item()
-            total += y.size(0)
-
-    acc = 100 * correct / total
-    print(f"Epoch {epoch+1} | Loss {total_loss:.4f} | Test Acc {acc:.2f}%")
-
-    if acc > best_acc:
-        best_acc = acc
-        torch.save(model.state_dict(), "best_mlp_emg.pth")
-
-print(f"\n✅ Melhor acurácia: {best_acc:.2f}%")
+joblib.dump((model, scaler, le), "model.pkl")
+print("✅ Modelo salvo em model.pkl")
