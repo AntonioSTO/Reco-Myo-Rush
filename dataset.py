@@ -1,4 +1,5 @@
 import os
+import re
 import numpy as np
 import pandas as pd
 import torch
@@ -19,23 +20,31 @@ class EMGDataset(Dataset):
         self.X = []
         self.y = []
 
-        for v in volunteers:
-            folder = os.path.join(root, f"volunteer_{v:02d}")
-            for file in os.listdir(folder):
-                if not file.endswith(".csv"):
-                    continue
+        for file in os.listdir(root):
+            if not file.endswith(".csv"):
+                continue
 
-                df = pd.read_csv(os.path.join(folder, file))
-                data = df.iloc[:, :-1].values  # canais
-                labels = df.iloc[:, -1].values
+            # Extrai ID do voluntário: voluntary_001_center.csv → 1
+            match = re.search(r"voluntary_(\d+)_", file)
+            if match is None:
+                continue
 
-                for i in range(0, len(data) - window_size, stride):
-                    window = data[i:i+window_size]
-                    label = labels[i+window_size//2]
-                    feats = extract_features(window)
+            subject_id = int(match.group(1))
+            if subject_id not in volunteers:
+                continue
 
-                    self.X.append(feats)
-                    self.y.append(label)
+            df = pd.read_csv(os.path.join(root, file))
+
+            data = df.iloc[:, :-1].values  # canais EMG
+            labels = df.iloc[:, -1].values  # labels
+
+            for i in range(0, len(data) - window_size, stride):
+                window = data[i:i+window_size]
+                label = labels[i + window_size // 2]
+
+                feats = extract_features(window)
+                self.X.append(feats)
+                self.y.append(label)
 
         self.X = np.stack(self.X)
         self.y = np.array(self.y)
