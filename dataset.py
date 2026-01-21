@@ -11,43 +11,57 @@ class EMGDataset(Dataset):
         self,
         root,
         volunteers,
-        window_size=50,
-        stride=5,
+        window_size,
+        stride,
+        label_map=None,
         mean=None,
         std=None,
         compute_norm=False
     ):
-        self.X = []
-        self.y = []
+        X_temp, y_temp = [], []
+        label_set = set()
 
         for file in os.listdir(root):
             if not file.endswith(".csv"):
                 continue
 
-            # Extrai ID do voluntário: voluntary_001_center.csv → 1
             match = re.search(r"voluntary_(\d+)_", file)
             if match is None:
                 continue
 
-            subject_id = int(match.group(1))
-            if subject_id not in volunteers:
+            subject = int(match.group(1))
+            if subject not in volunteers:
                 continue
 
             df = pd.read_csv(os.path.join(root, file))
 
-            data = df.iloc[:, :-1].values  # canais EMG
-            labels = df.iloc[:, -1].values  # labels
+            data = df.iloc[:, :-1].values
+            labels = df.iloc[:, -1].values
 
             for i in range(0, len(data) - window_size, stride):
-                window = data[i:i+window_size]
+                window = data[i:i + window_size]
                 label = labels[i + window_size // 2]
 
-                feats = extract_features(window)
-                self.X.append(feats)
-                self.y.append(label)
+                X_temp.append(extract_features(window))
+                y_temp.append(label)
+                label_set.add(label)
+
+        # Criar label_map SOMENTE no treino
+        if label_map is None:
+            self.label_map = {l: i for i, l in enumerate(sorted(label_set))}
+        else:
+            self.label_map = label_map
+
+        self.X = []
+        self.y = []
+
+        for x, y in zip(X_temp, y_temp):
+            if y in self.label_map:
+                self.X.append(x)
+                self.y.append(self.label_map[y])
 
         self.X = np.stack(self.X)
-        self.y = np.array(self.y)
+        self.y = np.array(self.y, dtype=np.int64)
 
         if compute_norm:
             self.mean = self.X.mean(axis=0)

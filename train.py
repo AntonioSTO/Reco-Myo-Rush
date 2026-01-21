@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader
 from dataset import EMGDataset
 from model import MLP
 from tqdm import tqdm
+import numpy as np
+import pickle
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -18,25 +20,40 @@ TRAIN_VOL = list(range(1, 9))
 TEST_VOL = [9, 10]
 
 train_set = EMGDataset(
-    ROOT, TRAIN_VOL, WINDOW, STRIDE, compute_norm=True
+    ROOT,
+    TRAIN_VOL,
+    WINDOW,
+    STRIDE,
+    compute_norm=True
 )
 
+label_map = train_set.label_map
+
 test_set = EMGDataset(
-    ROOT, TEST_VOL, WINDOW, STRIDE,
+    ROOT,
+    TEST_VOL,
+    WINDOW,
+    STRIDE,
+    label_map=label_map,
     mean=train_set.mean,
     std=train_set.std
 )
 
+np.save("mean.npy", train_set.mean)
+np.save("std.npy", train_set.std)
+
+with open("label_map.pkl", "wb") as f:
+    pickle.dump(label_map, f)
+
 train_loader = DataLoader(train_set, batch_size=BATCH, shuffle=True)
 test_loader = DataLoader(test_set, batch_size=BATCH)
 
-num_classes = len(set(train_set.y))
-model = MLP(train_set.X.shape[1], num_classes).to(DEVICE)
+model = MLP(train_set.X.shape[1], len(label_map)).to(DEVICE)
 
 criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-3)
 
-best_acc = 0
+best_acc = 0.0
 
 for epoch in range(EPOCHS):
     model.train()
@@ -46,8 +63,7 @@ for epoch in range(EPOCHS):
         x, y = x.to(DEVICE), y.to(DEVICE)
 
         optimizer.zero_grad()
-        out = model(x)
-        loss = criterion(out, y)
+        loss = criterion(model(x), y)
         loss.backward()
         optimizer.step()
 
@@ -70,10 +86,4 @@ for epoch in range(EPOCHS):
         best_acc = acc
         torch.save(model.state_dict(), "best_mlp_emg.pth")
 
-print(f"✅ Melhor acurácia: {best_acc:.2f}%")
-
-import numpy as np
-
-np.save("mean.npy", train_set.mean)
-np.save("std.npy", train_set.std)
-
+print(f"\n✅ Melhor acurácia: {best_acc:.2f}%")
