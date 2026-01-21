@@ -10,20 +10,20 @@ STEP = 100
 
 def bandpass(sig, fs, low=20, high=90):
     nyq = fs / 2
-    low = low / nyq
-    high = high / nyq
-    b, a = butter(4, [low, high], btype='band')
+    low /= nyq
+    high /= nyq
+    b, a = butter(4, [low, high], btype="band")
     return filtfilt(b, a, sig, axis=0)
 
 def extract_features(window):
     feats = []
 
     # Time-domain
-    feats.append(np.mean(np.abs(window)))                 # MAV
-    feats.append(np.sqrt(np.mean(window**2)))             # RMS
-    feats.append(np.sum(np.abs(np.diff(window))))         # WL
-    feats.append(np.sum(np.diff(np.sign(window)) != 0))   # ZC
-    feats.append(np.sum(np.diff(np.sign(np.diff(window))) != 0))  # SSC
+    feats.append(np.mean(np.abs(window)))
+    feats.append(np.sqrt(np.mean(window ** 2)))
+    feats.append(np.sum(np.abs(np.diff(window))))
+    feats.append(np.sum(np.diff(np.sign(window)) != 0))
+    feats.append(np.sum(np.diff(np.sign(np.diff(window))) != 0))
 
     # Frequency-domain
     f, Pxx = welch(window, fs=FS, axis=0)
@@ -39,10 +39,11 @@ files = sorted(glob.glob("db/*.csv"))
 assert len(files) > 0, "❌ Nenhum CSV encontrado em /db"
 
 for file in tqdm(files):
-    label = file.split("_")[-1].replace(".csv", "")
     df = pd.read_csv(file)
 
-    signal = df.values.astype(np.float32)
+    # 👉 ASSUMIMOS: última coluna é label
+    signal = df.iloc[:, :-1].values.astype(np.float32)
+    labels = df.iloc[:, -1].values
 
     signal = bandpass(signal, FS)
     signal = np.abs(signal)
@@ -55,10 +56,10 @@ for file in tqdm(files):
             feat_vec.extend(extract_features(window[:, ch]))
 
         X.append(feat_vec)
-        y.append(label)
+        y.append(labels[i])  # label da janela
 
 X = np.array(X, dtype=np.float32)
 y = np.array(y)
 
 np.savez("features.npz", X=X, y=y)
-print(f"✅ Features extraídas: {X.shape}")
+print(f"✅ Features extraídas corretamente: {X.shape}")
