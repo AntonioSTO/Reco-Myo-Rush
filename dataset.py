@@ -9,16 +9,14 @@ class HandGestureDataset(Dataset):
         self,
         data_dir,
         voluntaries,
-        window_size=15,
-        stride=1,
+        window_size=25,
+        stride=3,
         label_map=None
     ):
         self.window_size = window_size
         self.stride = stride
         self.samples = []
         self.labels = []
-
-        # Se label_map vier vazio ou None → treino
         self.label_map = {} if label_map is None else label_map
 
         self._load_data(data_dir, voluntaries)
@@ -41,23 +39,17 @@ class HandGestureDataset(Dataset):
 
             data = df[[f"CH_{i}" for i in range(1, 9)]].values
             labels = df["State"].values
-
             data = self._normalize(data)
 
             for i in range(0, len(data) - self.window_size, self.stride):
                 window = data[i:i + self.window_size]
                 window_labels = labels[i:i + self.window_size]
 
-                # Label majoritário
                 label = max(set(window_labels), key=list(window_labels).count)
 
-                # Só cria labels novas no treino
                 if label not in self.label_map:
-                    if self.label_map is not None:
-                        self.label_map[label] = label_counter
-                        label_counter += 1
-                    else:
-                        continue
+                    self.label_map[label] = label_counter
+                    label_counter += 1
 
                 self.samples.append(window)
                 self.labels.append(self.label_map[label])
@@ -66,6 +58,6 @@ class HandGestureDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        x = torch.tensor(self.samples[idx], dtype=torch.float32).T  # (8, 15)
+        x = torch.tensor(self.samples[idx], dtype=torch.float32)  # (T, 8)
         y = torch.tensor(self.labels[idx], dtype=torch.long)
         return x, y
