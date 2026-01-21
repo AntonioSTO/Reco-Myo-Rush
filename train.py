@@ -12,6 +12,7 @@ from model import CNN1DGesture
 # ======================
 DATA_DIR = "db"
 WINDOW_SIZE = 15
+STRIDE = 1
 BATCH_SIZE = 128
 EPOCHS = 40
 LR = 1e-3
@@ -22,22 +23,25 @@ TEST_VOLUNTARIES = [9, 10]               # 009–010
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ======================
-# Datasets
+# Dataset de treino
 # ======================
 train_dataset = HandGestureDataset(
     data_dir=DATA_DIR,
     voluntaries=TRAIN_VOLUNTARIES,
-    window_size=WINDOW_SIZE
+    window_size=WINDOW_SIZE,
+    stride=STRIDE
 )
 
+# ======================
+# Dataset de teste (reutiliza label_map do treino)
+# ======================
 test_dataset = HandGestureDataset(
     data_dir=DATA_DIR,
     voluntaries=TEST_VOLUNTARIES,
-    window_size=WINDOW_SIZE
+    window_size=WINDOW_SIZE,
+    stride=STRIDE,
+    label_map=train_dataset.label_map
 )
-
-# Compartilha o label_map
-test_dataset.label_map = train_dataset.label_map
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
@@ -61,17 +65,21 @@ for epoch in range(EPOCHS):
         x, y = x.to(DEVICE), y.to(DEVICE)
 
         optimizer.zero_grad()
-        loss = criterion(model(x), y)
+        logits = model(x)
+        loss = criterion(logits, y)
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
 
+    avg_loss = total_loss / len(train_loader)
+
     # ======================
     # Avaliação
     # ======================
     model.eval()
-    correct, total = 0, 0
+    correct = 0
+    total = 0
 
     with torch.no_grad():
         for x, y in test_loader:
@@ -80,8 +88,12 @@ for epoch in range(EPOCHS):
             correct += (preds == y).sum().item()
             total += y.size(0)
 
-    acc = 100 * correct / total
-    print(f"Epoch {epoch+1} | Loss: {total_loss/len(train_loader):.4f} | Test Acc: {acc:.2f}%")
+    acc = 100.0 * correct / total
 
+    print(f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Test Acc: {acc:.2f}%")
+
+# ======================
+# Salvar modelo
+# ======================
 torch.save(model.state_dict(), "cnn1d_hand_gesture.pth")
-print("✅ Modelo salvo com sucesso")
+print("✅ Modelo salvo em cnn1d_hand_gesture.pth")
