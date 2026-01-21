@@ -1,2 +1,0 @@
-Model,Accuracy,Precision,Sensitivity,Best Estimator Params
-KNN,93.01,93.3,93.01,"{'metric': 'manhattan', 'n_neighbors': 2}"
